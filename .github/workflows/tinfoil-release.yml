@@ -1,22 +1,68 @@
-# Tinfoil's dashboard looks for a workflow with this name before it lets you create an
-# instance or press Release. In Tinfoil's template this file builds the image and tags the
-# config in the same repository. Here it does not: the image is built and this config is
-# tagged and measured by the release job of the private source repository
-# (Lucid-Computing/aiab-introspection, .github/workflows/release.yml), which then dispatches
-# measure-release.yml on the tag. Running this workflow does nothing but say so.
+# Shaped like Tinfoil's template workflow of this name, which the dashboard looks for: the
+# same trigger, jobs and actions. It never releases anything, though. In the template the
+# "build" job builds the image from this repository; here there is nothing to build, since
+# the image is built, this config rewritten, tagged and measured by the release job of the
+# private source repository (Lucid-Computing/aiab-introspection, release.yml on the staging
+# branch), which dispatches measure-release.yml on the tag. The first step stops with that
+# message, so the jobs below it never run.
 name: Tinfoil Release
 on:
   workflow_dispatch:
     inputs:
       version:
-        description: 'Not used here: releases are made from Lucid-Computing/aiab-introspection'
-        required: false
+        description: 'Version to release (e.g. v1.0.0)'
+        required: true
         type: string
+concurrency:
+  group: tinfoil-container-release-${{ inputs.version }}
 permissions: {}
 jobs:
-  not-here:
+  build:
     runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      packages: write
+    outputs:
+      digest: ${{ steps.build.outputs.digest }}
     steps:
-      - run: |
-          echo "::error::Releases of this config are made by the release job of Lucid-Computing/aiab-introspection (release.yml on the staging branch), which tags this repository and runs measure-release.yml. Nothing was released."
+      - name: Releases are not made from this repository
+        run: |
+          echo "::error::This config is released by Lucid-Computing/aiab-introspection (release.yml on the staging branch): it builds the image, rewrites and tags this config and runs measure-release.yml. Nothing was built or released here."
           exit 1
+      - uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6.0.1
+        with:
+          persist-credentials: false
+      - uses: docker/setup-buildx-action@4d04d5d9486b7bd6fa91e7baf45bbb4f8b9deedd # v4.0.0
+      - uses: docker/login-action@4907a6ddec9925e35a0a9e82d7399ccc52663121 # v4.1.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: docker/build-push-action@bcafcacb16a39f128d818304e6c9c0c18556b85f # v7.1.0
+        id: build
+        with:
+          context: .
+          push: false
+  prepare-release:
+    needs: build
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+      pull-requests: write
+      actions: write
+    steps:
+      - uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6.0.1
+        with:
+          persist-credentials: false
+      - uses: tinfoilsh/update-container-action@5e0a3789316941664cee055706799114e0180565 # v0.6.0
+        with:
+          version: ${{ inputs.version }}
+          source-sha: ${{ github.sha }}
+          update-config: true
+          image-refs: |
+            ghcr.io/lucid-computing/aiab-introspection-enclave-staging@${{ needs.build.outputs.digest }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+      - env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION: ${{ inputs.version }}
+        run: gh workflow run measure-release.yml --ref "$VERSION"
