@@ -1,0 +1,22 @@
+# Tinfoil's dashboard looks for a workflow with this name before it lets you create an
+# instance or press Release. In Tinfoil's template this file builds the image and tags the
+# config in the same repository. Here it does not: the image is built and this config is
+# tagged and measured by the release job of the private source repository
+# (Lucid-Computing/aiab-introspection, .github/workflows/release.yml), which then dispatches
+# measure-release.yml on the tag. Running this workflow does nothing but say so.
+name: Tinfoil Release
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Not used here: releases are made from Lucid-Computing/aiab-introspection'
+        required: false
+        type: string
+permissions: {}
+jobs:
+  not-here:
+    runs-on: ubuntu-24.04
+    steps:
+      - run: |
+          echo "::error::Releases of this config are made by the release job of Lucid-Computing/aiab-introspection (release.yml on the staging branch), which tags this repository and runs measure-release.yml. Nothing was released."
+          exit 1
